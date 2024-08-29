@@ -342,7 +342,7 @@ class BaseDocument:
 
 	def get_valid_dict(
 		self, sanitize=True, convert_dates_to_str=False, ignore_nulls=False, ignore_virtual=False
-	) -> _dict:
+	) -> dict:
 		d = _dict()
 		field_values = self.__dict__
 
@@ -362,32 +362,39 @@ class BaseDocument:
 					if ignore_virtual or fieldname not in self.permitted_fieldnames:
 						continue
 
-					if (prop := getattr(type(self), fieldname, None)) and is_a_property(prop):
-						value = getattr(self, fieldname)
+					if value is None:
+						if (prop := getattr(type(self), fieldname, None)) and is_a_property(prop):
+							value = getattr(self, fieldname)
 
-					elif options := getattr(df, "options", None):
-						from frappe.utils.safe_exec import get_safe_globals
+						elif options := getattr(df, "options", None):
+							from frappe.utils.safe_exec import get_safe_globals
 
-						value = frappe.safe_eval(
-							code=options,
-							eval_globals=get_safe_globals(),
-							eval_locals={"doc": self},
-						)
+							value = frappe.safe_eval(
+								code=options,
+								eval_globals=get_safe_globals(),
+								eval_locals={"doc": self},
+							)
 
 				if isinstance(value, list) and df.fieldtype not in table_fields:
-					frappe.throw(_("Value for {0} cannot be a list").format(_(df.label, context=df.parent)))
+					frappe.throw(_("Value for {0} cannot be a list").format(_(df.label)))
 
 				if df.fieldtype == "Check":
 					value = 1 if cint(value) else 0
 
 				elif df.fieldtype == "Int" and not isinstance(value, int):
-					value = cint(value)
+					if df.default in ["0000", "NULL"] and value is None:
+						pass
+					else:
+						value = cint(value)
 
 				elif df.fieldtype == "JSON" and isinstance(value, dict):
-					value = json.dumps(value, separators=(",", ":"))
+					value = json.dumps(value, sort_keys=True, indent=4, separators=(",", ": "))
 
 				elif df.fieldtype in float_like_fields and not isinstance(value, float):
-					value = flt(value)
+					if df.default in ["0000", "NULL"] and value is None:
+						pass
+					else:
+						value = flt(value)
 
 				elif (df.fieldtype in datetime_fields and value == "") or (
 					getattr(df, "unique", False) and cstr(value).strip() == ""
@@ -395,7 +402,7 @@ class BaseDocument:
 					value = None
 
 			if convert_dates_to_str and isinstance(
-				value, datetime.datetime | datetime.date | datetime.time | datetime.timedelta
+				value, (datetime.datetime, datetime.date, datetime.time, datetime.timedelta)
 			):
 				value = str(value)
 
